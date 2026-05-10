@@ -1,0 +1,88 @@
+{
+  "name": "PsychProfile",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Profile name (e.g., Le Visionnaire, L'Analyste)"
+    },
+    "code": {
+      "type": "string",
+      "description": "Unique code for the profile"
+    },
+    "description": {
+      "type": "string",
+      "description": "Detailed description of the psychological profile"
+    },
+    "strengths": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "List of strengths"
+    },
+    "weaknesses": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "List of weaknesses"
+    },
+    "recommended_careers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Recommended career paths"
+    },
+    "advice": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Personal development advice"
+    },
+    "dominant_traits": {
+      "type": "object",
+      "description": "Score thresholds that define this profile",
+      "properties": {
+        "introversion": {
+          "type": "number"
+        },
+        "extraversion": {
+          "type": "number"
+        },
+        "analytical": {
+          "type": "number"
+        },
+        "creative": {
+          "type": "number"
+        },
+        "emotional": {
+          "type": "number"
+        },
+        "rational": {
+          "type": "number"
+        },
+        "leadership": {
+          "type": "number"
+        },
+        "collaboration": {
+          "type": "number"
+        }
+      }
+    },
+    "color": {
+      "type": "string",
+      "description": "Theme color for the profile display"
+    },
+    "icon": {
+      "type": "string",
+      "description": "Icon name for the profile"
+    }
+  },
+  "required": [
+    "name",
+    "code"
+  ]
+}
