@@ -24,24 +24,3 @@ export function passwordErrorMessage(password) {
   return '';
 }
 
-function encodeBase64(bytes) {
-  let binary = '';
-  bytes.forEach((byte) => {
-    binary += String.fromCharCode(byte);
-  });
-  return btoa(binary);
-}
-
-export function createSalt() {
-  const values = crypto.getRandomValues(new Uint8Array(16));
-  return Array.from(values)
-    .map((value) => value.toString(16).padStart(2, '0'))
-    .join('');
-}
-
-export async function hashPassword(password, salt) {
-  const message = new TextEncoder().encode(`${salt}:${password}`);
-  const digest = await crypto.subtle.digest('SHA-256', message);
-  return encodeBase64(new Uint8Array(digest));
-}
-

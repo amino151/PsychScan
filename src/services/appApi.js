@@ -1,34 +1,21 @@
-import { defaultQuestions } from '@/lib/questionData';
-import { profileCatalog } from '@/config/profiles';
+// Façade applicative : expose les entités métier, l'authentification et des
+// opérations de haut niveau (soumission d'évaluation, requêtes par rôle).
+// Fonctionne en mode Supabase ou en mode démo local (mock) de façon transparente.
+
 import { normalizeEmail } from '@/lib/auth-utils';
+import { isSupabaseConfigured } from '@/supabase';
 import * as authService from '@/services/auth';
-import * as db from '@/services/database';
+import {
+  dbList,
+  dbGet,
+  dbFindOne,
+  dbInsert,
+  dbUpdate,
+  dbUpsert,
+  dbRemove,
+} from '@/services/database';
 
-const GUEST_EMAIL_KEY = 'mindscan_guest_email';
-
-function sortByField(items, sortSpec) {
-  if (!sortSpec || !items.length) return items;
-  const desc = sortSpec.startsWith('-');
-  const field = desc ? sortSpec.slice(1) : sortSpec;
-  return [...items].sort((a, b) => {
-    const av = a[field];
-    const bv = b[field];
-    if (av == null && bv == null) return 0;
-    if (av == null) return 1;
-    if (bv == null) return -1;
-    if (av < bv) return desc ? 1 : -1;
-    if (av > bv) return desc ? -1 : 1;
-    return 0;
-  });
-}
-
-function mapTestResultRow(row) {
-  if (!row) return row;
-  return {
-    ...row,
-    created_date: row.created_at ?? row.created_date,
-  };
-}
+const GUEST_EMAIL_KEY = 'psychoscan_guest_email';
 
 export function getGuestEmail() {
   let email = localStorage.getItem(GUEST_EMAIL_KEY);
@@ -39,27 +26,72 @@ export function getGuestEmail() {
   return email;
 }
 
-const seededQuestions = defaultQuestions.map((q, i) => ({
-  ...q,
-  id: q.id || `q${q.order ?? i}`,
-}));
+// Fabrique d'entité CRUD générique.
+function makeEntity(table) {
+  return {
+    list: (sort, limit) => dbList(table, { sort, limit }),
+    filter: (filter, sort, limit) => dbList(table, { filter, sort, limit }),
+    get: (id) => dbGet(table, id),
+    findOne: (filter) => dbFindOne(table, filter),
+    create: (row) => dbInsert(table, row),
+    update: (id, patch) => dbUpdate(table, id, patch),
+    upsert: (row, key) => dbUpsert(table, row, key),
+    remove: (id) => dbRemove(table, id),
+  };
+}
 
-const seededProfiles = profileCatalog.map((p) => ({
-  ...p,
-  id: p.id || `profile_${p.code}`,
-}));
+const entities = {
+  Department: makeEntity('departments'),
+  Employee: makeEntity('profiles'),
+  Questionnaire: makeEntity('questionnaires'),
+  Question: makeEntity('questions'),
+  QuestionCategory: makeEntity('question_categories'),
+  PsychProfile: makeEntity('psychological_profiles'),
+  Assignment: makeEntity('assessment_assignments'),
+  Result: makeEntity('assessment_results'),
+  Recommendation: makeEntity('recommendations'),
+  TrainingPlan: makeEntity('training_plans'),
+  TrainingCatalog: makeEntity('training_catalog'),
+  Setting: makeEntity('settings'),
+  AuditLog: makeEntity('audit_logs'),
+};
+
+async function writeAudit(actorId, action, entity, entityId, details) {
+  try {
+    await dbInsert('audit_logs', {
+      actor_id: actorId ?? null,
+      action,
+      entity,
+      entity_id: entityId ?? null,
+      details: details ?? '',
+    });
+  } catch {
+    /* audit best-effort */
+  }
+}
 
 export const appApi = {
+  isMock: !isSupabaseConfigured,
+
   auth: {
-    async register({ full_name, email, password }) {
-      const data = await authService.signUp(normalizeEmail(email), password, { full_name });
-      const user = data.user;
-      if (!user) throw new Error('Inscription impossible.');
-      await db.createProfile({
-        id: user.id,
-        email: user.email ?? normalizeEmail(email),
-        full_name: full_name.trim(),
-      });
+    async register({ full_name, email, password, role = 'employee', department_id = null }) {
+      const normalized = normalizeEmail(email);
+      const data = await authService.signUp(normalized, password, { full_name });
+      const user = data?.user;
+      // En mode Supabase, on crée le profil applicatif ; en mode mock il existe déjà.
+      if (isSupabaseConfigured && user?.id) {
+        await dbUpsert(
+          'profiles',
+          {
+            id: user.id,
+            email: user.email ?? normalized,
+            full_name: (full_name || '').trim(),
+            role,
+            department_id,
+          },
+          'id'
+        );
+      }
       return authService.getCurrentUser();
     },
 
@@ -70,26 +102,21 @@ export const appApi = {
 
     async requestPasswordReset(email) {
       await authService.requestPasswordReset(normalizeEmail(email));
-      return { exists: true };
+      return { ok: true };
     },
 
     async me() {
       const user = await authService.getCurrentUser();
       if (!user) {
-        const err = new Error('Not authenticated');
-        Object.assign(err, { status: 401 });
+        const err = new Error('Non authentifié');
+        err.status = 401;
         throw err;
       }
       return user;
     },
 
-    async promoteToAdmin() {
-      await authService.promoteToAdmin();
-      return authService.getCurrentUser();
-    },
-
     logout(redirectHref) {
-      authService.logout().finally(() => {
+      Promise.resolve(authService.logout()).finally(() => {
         if (redirectHref) window.location.assign(redirectHref);
       });
     },
@@ -101,60 +128,118 @@ export const appApi = {
     },
   },
 
-  entities: {
-    Question: {
-      async list(sortField, limit = 100) {
-        const sorted = sortByField(seededQuestions, sortField || 'order');
-        return sorted.slice(0, limit);
-      },
-    },
+  entities,
 
-    PsychProfile: {
-      async list() {
-        return seededProfiles;
-      },
-    },
+  // --- Opérations de haut niveau ----------------------------------------
 
-    TestResult: {
-      async create(data) {
-        const sessionUser = await authService.getCurrentUser().catch(() => null);
-        const row = {
-          user_id: sessionUser?.id ?? null,
-          user_email: data.user_email,
-          user_name: data.user_name,
-          scores: data.scores,
-          profile_code: data.profile_code,
-          profile_name: data.profile_name,
-          answers: data.answers,
-          completion_time_seconds: data.completion_time_seconds,
-          is_guest: data.is_guest ?? false,
-        };
-        const inserted = await db.insertTestResult(row);
-        return mapTestResultRow(inserted);
-      },
-
-      async filter(criteria, sortSpec, limit) {
-        const rows = await db.filterTestResults(criteria, sortSpec || '-created_at', limit);
-        return rows.map(mapTestResultRow);
-      },
-
-      async list(sortSpec, limit = 500) {
-        const rows = await db.listTestResults(sortSpec || '-created_at', limit);
-        return rows.map(mapTestResultRow);
-      },
-    },
-
-    User: {
-      async list() {
-        const rows = await db.listProfilesForAdmin();
-        return rows.map((u) => ({
-          id: u.id,
-          email: u.email,
-          full_name: u.full_name,
-          role: u.role ?? 'user',
-          created_date: u.created_at,
-        }));
-      },
-    },
+  // Employés supervisés par un manager (subordonnés directs).
+  async listSubordinates(managerId) {
+    return dbList('profiles', { filter: { manager_id: managerId }, sort: 'full_name' });
   },
+
+  // Employés d'un département.
+  async listDepartmentMembers(departmentId) {
+    return dbList('profiles', { filter: { department_id: departmentId }, sort: 'full_name' });
+  },
+
+  async listResultsForEmployee(employeeId, limit = 50) {
+    return dbList('assessment_results', {
+      filter: { employee_id: employeeId },
+      sort: '-created_at',
+      limit,
+    });
+  },
+
+  async listResultsForDepartment(departmentId, limit = 500) {
+    return dbList('assessment_results', {
+      filter: { department_id: departmentId },
+      sort: '-created_at',
+      limit,
+    });
+  },
+
+  async listAssignmentsForEmployee(employeeId) {
+    return dbList('assessment_assignments', {
+      filter: { employee_id: employeeId },
+      sort: '-assigned_at',
+    });
+  },
+
+  async latestResultForEmployee(employeeId) {
+    const rows = await this.listResultsForEmployee(employeeId, 1);
+    return rows[0] ?? null;
+  },
+
+  // Soumission d'une évaluation : crée le résultat, met à jour l'affectation,
+  // génère les recommandations et journalise l'action.
+  async submitAssessment({
+    employee,
+    assignmentId,
+    questionnaireId,
+    departmentId,
+    scores,
+    profile,
+    insights,
+    answers,
+    completionTimeSeconds,
+    departmentFit,
+  }) {
+    const result = await dbInsert('assessment_results', {
+      employee_id: employee?.id ?? null,
+      assignment_id: assignmentId ?? null,
+      questionnaire_id: questionnaireId,
+      department_id: departmentId ?? employee?.department_id ?? null,
+      scores,
+      profile_code: profile?.code ?? null,
+      profile_name: profile?.name ?? null,
+      answers: answers ?? [],
+      completion_time_seconds: completionTimeSeconds ?? null,
+      department_fit: departmentFit ?? null,
+      user_name: employee?.full_name ?? 'Invité',
+      user_email: employee?.email ?? getGuestEmail(),
+    });
+
+    if (assignmentId) {
+      await dbUpdate('assessment_assignments', assignmentId, {
+        status: 'completed',
+        completed_at: new Date().toISOString(),
+        result_id: result.id,
+      });
+    }
+
+    // Génération des recommandations de formation à partir des axes faibles.
+    if (employee?.id && insights?.trainingSuggestions?.length) {
+      for (const training of insights.trainingSuggestions.slice(0, 3)) {
+        await dbInsert('recommendations', {
+          employee_id: employee.id,
+          result_id: result.id,
+          type: 'training',
+          title: training.title,
+          description: training.description,
+          priority: 'medium',
+        });
+      }
+    }
+
+    await writeAudit(employee?.id, 'submit', 'assessment_result', result.id, 'Évaluation soumise');
+    return result;
+  },
+
+  // Affecte un questionnaire à un employé.
+  async assignQuestionnaire({ employeeId, questionnaireId, assignedBy, dueDate }) {
+    const assignment = await dbInsert('assessment_assignments', {
+      employee_id: employeeId,
+      questionnaire_id: questionnaireId,
+      status: 'assigned',
+      assigned_by: assignedBy ?? null,
+      assigned_at: new Date().toISOString(),
+      due_date: dueDate ?? null,
+      completed_at: null,
+      result_id: null,
+    });
+    await writeAudit(assignedBy, 'create', 'assessment_assignment', assignment.id, 'Affectation créée');
+    return assignment;
+  },
+
+  audit: writeAudit,
 };

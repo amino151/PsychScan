@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Brain, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, Radar, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import AuthField from '@/components/auth/AuthField';
 import { appApi } from '@/services/appApi';
@@ -65,7 +65,7 @@ export default function SignUp() {
       if (sessionUser) {
         setSuccess('Compte créé avec succès. Redirection…');
         window.setTimeout(() => {
-          navigate('/history', { replace: true });
+          navigate('/app/employe', { replace: true });
         }, 900);
       } else {
         setSuccess(
@@ -99,12 +99,12 @@ export default function SignUp() {
 
           <div className="w-full p-7 md:p-8 rounded-3xl border border-white/45 bg-white/80 backdrop-blur-xl shadow-panel">
             <div className="flex items-center gap-3 mb-5">
-              <div className="rounded-xl bg-primary/10 p-2.5">
-                <Brain className="w-5 h-5 text-primary" />
+              <div className="rounded-xl bg-brand-gradient p-2.5">
+                <Radar className="w-5 h-5 text-white" />
               </div>
               <div>
                 <h1 className="text-2xl font-display font-bold">Créer un compte</h1>
-                <p className="text-sm text-muted-foreground">Compte sécurisé (Supabase)</p>
+                <p className="text-sm text-muted-foreground">Nouveau collaborateur PsychoScan IOS</p>
               </div>
             </div>
 

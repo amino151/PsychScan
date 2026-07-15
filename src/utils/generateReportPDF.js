@@ -2,24 +2,17 @@ import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { DIMENSION_LABELS } from '@/lib/scoring';
 
-const PAGE = {
-  width: 210,
-  height: 297,
-  marginX: 16,
-};
+const PAGE = { width: 210, height: 297, marginX: 16 };
+const BRAND = 'PsychoScan IOS';
 
 function hexToRgb(hex) {
-  const value = String(hex || '#2563EB').replace('#', '');
+  const value = String(hex || '#1D4ED8').replace('#', '');
   const normalized = value.length === 3 ? value.split('').map((x) => x + x).join('') : value;
   const n = Number.parseInt(normalized, 16);
-  return {
-    r: (n >> 16) & 255,
-    g: (n >> 8) & 255,
-    b: n & 255,
-  };
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
 }
 
-function drawHeaderGradient(doc, from, to) {
+function drawHeaderGradient(doc, from, to, height = 42) {
   const start = hexToRgb(from);
   const end = hexToRgb(to);
   const steps = 45;
@@ -29,7 +22,7 @@ function drawHeaderGradient(doc, from, to) {
     const g = Math.round(start.g + (end.g - start.g) * t);
     const b = Math.round(start.b + (end.b - start.b) * t);
     doc.setFillColor(r, g, b);
-    doc.rect(0, (42 / steps) * i, PAGE.width, 42 / steps + 0.35, 'F');
+    doc.rect(0, (height / steps) * i, PAGE.width, height / steps + 0.35, 'F');
   }
 }
 
@@ -78,8 +71,7 @@ function drawTraitBars(doc, scores, y, colorHex) {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9.5);
     doc.setTextColor(71, 85, 105);
-    const label = DIMENSION_LABELS[entry.key] || entry.key;
-    doc.text(label, x, yy);
+    doc.text(DIMENSION_LABELS[entry.key] || entry.key, x, yy);
 
     doc.setFillColor(226, 232, 240);
     doc.roundedRect(x, yy + 2, barW, 3.3, 1, 1, 'F');
@@ -87,7 +79,7 @@ function drawTraitBars(doc, scores, y, colorHex) {
     doc.roundedRect(x, yy + 2, Math.max(2, (barW * Math.min(100, entry.value)) / 100), 3.3, 1, 1, 'F');
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(30, 41, 59);
-    doc.text(`${entry.value}%`, x + barW + 4, yy + 4.6);
+    doc.text(`${Math.round(entry.value)}%`, x + barW + 4, yy + 4.6);
   });
 
   return y + Math.ceil(entries.length / 2) * rowGap + 3;
@@ -105,107 +97,6 @@ function drawBulletList(doc, items, y, colorHex, maxWidth = PAGE.width - PAGE.ma
     y = drawWrappedText(doc, item, PAGE.marginX + 4.3, y, maxWidth - 4.3, 5.2) + 1.2;
   });
   return y;
-}
-
-function getTopTraits(scores, count = 3) {
-  return Object.entries(scores || {})
-    .map(([key, value]) => ({
-      key,
-      label: DIMENSION_LABELS[key] || key,
-      value: Number(value) || 0,
-    }))
-    .sort((a, b) => b.value - a.value)
-    .slice(0, count);
-}
-
-function drawTopTraitCards(doc, scores, y, accentHex) {
-  const cards = getTopTraits(scores, 3);
-  const gap = 6;
-  const cardWidth = (PAGE.width - PAGE.marginX * 2 - gap * 2) / 3;
-  const cardHeight = 28;
-  const accent = hexToRgb(accentHex);
-
-  cards.forEach((trait, index) => {
-    const x = PAGE.marginX + index * (cardWidth + gap);
-    doc.setFillColor(248, 250, 252);
-    doc.setDrawColor(226, 232, 240);
-    doc.roundedRect(x, y, cardWidth, cardHeight, 2.5, 2.5, 'FD');
-
-    doc.setFillColor(accent.r, accent.g, accent.b);
-    doc.roundedRect(x + 3, y + 3, cardWidth - 6, 3, 1.5, 1.5, 'F');
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(11);
-    doc.setTextColor(30, 41, 59);
-    doc.text(`#${index + 1} ${trait.label}`, x + 4, y + 12.5);
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(17);
-    doc.setTextColor(accent.r, accent.g, accent.b);
-    doc.text(`${Math.round(trait.value)}%`, x + cardWidth - 4, y + 22, { align: 'right' });
-  });
-
-  return y + cardHeight + 8;
-}
-
-function drawTraitComparisonTable(doc, scores, y) {
-  const entries = Object.entries(scores || {})
-    .map(([key, value]) => ({
-      key,
-      label: DIMENSION_LABELS[key] || key,
-      value: Math.round(Number(value) || 0),
-    }))
-    .sort((a, b) => b.value - a.value);
-
-  const tableX = PAGE.marginX;
-  const tableWidth = PAGE.width - PAGE.marginX * 2;
-  const rowHeight = 7.4;
-  const colTrait = 74;
-  const colScore = 20;
-  const colInterpretation = tableWidth - colTrait - colScore;
-
-  doc.setFillColor(241, 245, 249);
-  doc.setDrawColor(203, 213, 225);
-  doc.rect(tableX, y, tableWidth, rowHeight, 'FD');
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9.6);
-  doc.setTextColor(30, 41, 59);
-  doc.text('Trait', tableX + 2, y + 5);
-  doc.text('Score', tableX + colTrait + 2, y + 5);
-  doc.text('Interprétation', tableX + colTrait + colScore + 2, y + 5);
-  y += rowHeight;
-
-  entries.forEach((entry, index) => {
-    y = ensurePage(doc, y, rowHeight + 2);
-
-    if (index % 2 === 0) {
-      doc.setFillColor(248, 250, 252);
-      doc.rect(tableX, y, tableWidth, rowHeight, 'F');
-    }
-    doc.setDrawColor(226, 232, 240);
-    doc.rect(tableX, y, tableWidth, rowHeight, 'S');
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9.3);
-    doc.setTextColor(51, 65, 85);
-    doc.text(entry.label, tableX + 2, y + 5);
-    doc.setFont('helvetica', 'bold');
-    doc.text(`${entry.value}%`, tableX + colTrait + 2, y + 5);
-    doc.setFont('helvetica', 'normal');
-    const interpretation =
-      entry.value >= 75
-        ? 'Très dominant'
-        : entry.value >= 55
-          ? 'Dominant'
-          : entry.value >= 40
-            ? 'Modéré'
-            : 'Faible';
-    doc.text(interpretation, tableX + colTrait + colScore + 2, y + 5);
-    y += rowHeight;
-  });
-
-  return y + 3;
 }
 
 function formatDate(dateValue) {
@@ -230,129 +121,121 @@ function safeFilePart(value, fallback) {
   return clean || fallback;
 }
 
-export async function generateReportPDF({
-  result,
-  profile,
-  userName,
-  radarElement,
-}) {
-  const from = profile?.theme?.from || profile?.color || '#2563EB';
-  const to = profile?.theme?.to || '#8B5CF6';
+export async function generateReportPDF({ result, profile, department, employee, insights, radarElement }) {
+  const from = profile?.theme?.from || profile?.color || '#1D4ED8';
+  const to = profile?.theme?.to || '#7C3AED';
   const accent = profile?.color || from;
 
-  const doc = new jsPDF({
-    orientation: 'portrait',
-    unit: 'mm',
-    format: 'a4',
-    compress: true,
-  });
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
 
+  // --- En-tête corporate ---
   drawHeaderGradient(doc, from, to);
-
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(22);
-  doc.text('MindScan', PAGE.marginX, 16);
+  doc.text(BRAND, PAGE.marginX, 15);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10.5);
-  doc.text('Rapport de personnalité premium', PAGE.marginX, 23);
+  doc.text("Bilan d'évaluation des compétences", PAGE.marginX, 22);
 
-  doc.setFontSize(10);
-  doc.text(`Utilisateur: ${userName || result?.user_name || 'Invité'}`, PAGE.marginX, 31);
-  doc.text(`Date: ${formatDate(result?.created_date)}`, PAGE.width - PAGE.marginX, 31, { align: 'right' });
+  doc.setFontSize(9.5);
+  doc.text(`Collaborateur : ${employee?.full_name || result?.user_name || 'N/A'}`, PAGE.marginX, 30);
+  doc.text(`Date : ${formatDate(result?.created_at)}`, PAGE.width - PAGE.marginX, 30, { align: 'right' });
+  if (employee?.position) doc.text(`Poste : ${employee.position}`, PAGE.marginX, 35.5);
+  if (department?.name) doc.text(`Département : ${department.name}`, PAGE.width - PAGE.marginX, 35.5, { align: 'right' });
 
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(24);
-  doc.text(profile?.name || 'Profil', PAGE.marginX, 38);
-
+  // --- Bandeau profil + adéquation ---
   let y = 52;
-  y = sectionTitle(doc, 'Résumé de personnalité', y);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(20);
+  doc.setTextColor(15, 23, 42);
+  doc.text(profile?.name || 'Profil professionnel', PAGE.marginX, y);
+  y += 6;
+
+  const fit = Math.round(result?.department_fit ?? insights?.departmentFit ?? 0);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10);
+  const badge = hexToRgb(accent);
+  doc.setFillColor(badge.r, badge.g, badge.b);
+  doc.roundedRect(PAGE.marginX, y, 70, 8, 2, 2, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.text(`Adéquation au poste : ${fit}%`, PAGE.marginX + 3, y + 5.3);
+  y += 16;
+
+  y = sectionTitle(doc, 'Synthèse', y);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10.8);
   doc.setTextColor(51, 65, 85);
-  y = drawWrappedText(
-    doc,
-    profile?.description || 'Aucune description disponible.',
-    PAGE.marginX,
-    y,
-    PAGE.width - PAGE.marginX * 2,
-    5.4
-  );
-  y += 2.5;
+  y = drawWrappedText(doc, insights?.summary || profile?.description || '', PAGE.marginX, y, PAGE.width - PAGE.marginX * 2, 5.4);
+  y += 3;
 
-  const badgeColor = hexToRgb(accent);
-  doc.setFillColor(badgeColor.r, badgeColor.g, badgeColor.b);
-  doc.roundedRect(PAGE.marginX, y, 54, 8, 2, 2, 'F');
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  doc.setTextColor(255, 255, 255);
-  doc.text(profile?.code?.toUpperCase() || 'PROFILE', PAGE.marginX + 27, y + 5.25, { align: 'center' });
-  y += 14;
-
-  y = sectionTitle(doc, 'Répartition des traits', y);
+  y = sectionTitle(doc, 'Compétences évaluées', y);
   y = drawTraitBars(doc, result?.scores || {}, y, accent);
 
   if (radarElement) {
     try {
       y = ensurePage(doc, y, 76);
-      const canvas = await html2canvas(radarElement, {
-        scale: 2,
-        backgroundColor: '#ffffff',
-        useCORS: true,
-      });
+      const canvas = await html2canvas(radarElement, { scale: 2, backgroundColor: '#ffffff', useCORS: true });
       const imageData = canvas.toDataURL('image/png');
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(11);
       doc.setTextColor(30, 41, 59);
-      doc.text('Vue radar', PAGE.marginX, y);
+      doc.text('Radar des compétences', PAGE.marginX, y);
       y += 3;
       doc.addImage(imageData, 'PNG', PAGE.marginX, y, 74, 56, undefined, 'FAST');
       y += 62;
     } catch {
-      // If capture fails, keep PDF generation successful without chart image.
+      /* capture échouée : PDF généré sans image */
     }
   }
 
   y = ensurePage(doc, y, 18);
   y = sectionTitle(doc, 'Points forts', y);
-  y = drawBulletList(doc, profile?.strengths || [], y, '#059669');
+  y = drawBulletList(doc, insights?.strengths || profile?.strengths || [], y, '#059669');
 
   y = ensurePage(doc, y, 18);
-  y = sectionTitle(doc, 'Axes de progression', y);
-  y = drawBulletList(doc, profile?.weaknesses || [], y, '#D97706');
+  y = sectionTitle(doc, "Axes d'amélioration", y);
+  y = drawBulletList(doc, insights?.improvementAreas || profile?.weaknesses || [], y, '#D97706');
 
-  y = ensurePage(doc, y, 18);
-  y = sectionTitle(doc, 'Métiers recommandés', y);
-  y = drawBulletList(doc, profile?.recommended_careers || [], y, accent);
-
-  y = ensurePage(doc, y, 18);
-  y = sectionTitle(doc, 'Conseils de développement', y);
-  y = drawBulletList(doc, profile?.advice || [], y, '#334155');
-
-  // Executive second page: quick snapshot for sharing/printing.
+  // --- Page 2 : plan de développement ---
   doc.addPage();
-  drawHeaderGradient(doc, from, to);
+  drawHeaderGradient(doc, from, to, 30);
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(19);
-  doc.text('MindScan - Executive Snapshot', PAGE.marginX, 16);
+  doc.setFontSize(18);
+  doc.text(`${BRAND} — Plan de développement`, PAGE.marginX, 14);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10);
-  doc.text(`${profile?.name || 'Profil'} | ${formatDate(result?.created_date)}`, PAGE.marginX, 23);
+  doc.text(`${employee?.full_name || ''} · ${department?.name || ''}`, PAGE.marginX, 21);
 
-  y = 34;
-  y = sectionTitle(doc, 'Top 3 traits dominants', y);
-  y = drawTopTraitCards(doc, result?.scores || {}, y, accent);
+  y = 40;
+  y = sectionTitle(doc, 'Formations recommandées', y);
+  const trainings = (insights?.trainingSuggestions || []).map(
+    (t) => `${t.title} (${t.duration || ''} · ${t.format || ''})`
+  );
+  y = drawBulletList(doc, trainings.length ? trainings : ['Aucune formation prioritaire — profil équilibré.'], y, accent);
 
-  y = ensurePage(doc, y, 28);
-  y = sectionTitle(doc, 'Tableau comparatif des traits', y);
-  y = drawTraitComparisonTable(doc, result?.scores || {}, y);
+  y = ensurePage(doc, y, 18);
+  y = sectionTitle(doc, 'Recommandations de carrière', y);
+  y = drawBulletList(doc, insights?.careerRecommendations || profile?.recommended_careers || [], y, '#2563EB');
 
-  const fileName = `MindScan_Report_${safeFilePart(
-    userName || result?.user_name || 'Guest',
-    'Guest'
-  )}_${safeFilePart(formatDate(result?.created_date), 'Date')}.pdf`;
+  if (department) {
+    y = ensurePage(doc, y, 18);
+    y = sectionTitle(doc, `Insights — ${department.name}`, y);
+    const deptMessages = (insights?.departmentInsights || []).map((d) => d.message);
+    y = drawBulletList(doc, deptMessages, y, '#7C3AED');
+  }
 
+  // --- Pied de page ---
+  const pageCount = doc.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i += 1) {
+    doc.setPage(i);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(148, 163, 184);
+    doc.text(`${BRAND} · Document confidentiel · Page ${i}/${pageCount}`, PAGE.width / 2, PAGE.height - 8, { align: 'center' });
+  }
+
+  const fileName = `PsychoScanIOS_Bilan_${safeFilePart(employee?.full_name || result?.user_name, 'Collaborateur')}_${safeFilePart(formatDate(result?.created_at), 'Date')}.pdf`;
   doc.save(fileName);
 }
-

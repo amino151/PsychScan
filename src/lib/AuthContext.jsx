@@ -1,5 +1,6 @@
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 import * as authService from '@/services/auth';
+import { isSupabaseConfigured } from '@/supabase';
 
 const AuthContext = createContext(null);
 
@@ -68,14 +69,26 @@ export const AuthProvider = ({ children }) => {
     window.location.assign(url.toString());
   }, []);
 
+  const hasRole = useCallback(
+    (roles) => {
+      if (!user?.role) return false;
+      if (!roles || (Array.isArray(roles) && roles.length === 0)) return true;
+      const allowed = Array.isArray(roles) ? roles : [roles];
+      return allowed.includes(user.role);
+    },
+    [user]
+  );
+
   const value = {
     user,
+    role: user?.role ?? null,
+    departmentId: user?.department_id ?? null,
     isAuthenticated: Boolean(user),
     isLoadingAuth,
     authChecked,
     authError: null,
-    isLoadingPublicSettings: false,
-    appPublicSettings: null,
+    isMock: !isSupabaseConfigured,
+    hasRole,
     logout,
     navigateToLogin,
     checkUserAuth,

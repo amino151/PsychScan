@@ -1,49 +1,12 @@
-// Modular scoring engine with weighted dimensions and tie-breakers.
+// Moteur d'évaluation configurable par compétences.
+// Les dimensions de scoring sont les compétences définies dans config/skills.js,
+// mais le moteur accepte n'importe quelle liste de dimensions pour rester générique.
 
-export const DIMENSIONS = [
-  'introversion',
-  'extraversion',
-  'analytical',
-  'creative',
-  'emotional',
-  'rational',
-  'leadership',
-  'collaboration',
-  'adaptability',
-  'communication',
-  'discipline',
-  'intuition',
-];
+import { SKILL_KEYS, SKILL_LABELS, SKILL_COLORS } from '@/config/skills';
 
-export const DIMENSION_LABELS = {
-  introversion: 'Introversion',
-  extraversion: 'Extraversion',
-  analytical: 'Analytique',
-  creative: 'Créativité',
-  emotional: 'Émotionnel',
-  rational: 'Rationnel',
-  leadership: 'Leadership',
-  collaboration: 'Collaboration',
-  adaptability: 'Adaptabilite',
-  communication: 'Communication',
-  discipline: 'Discipline',
-  intuition: 'Intuition',
-};
-
-export const DIMENSION_COLORS = {
-  introversion: '#6366F1',
-  extraversion: '#0EA5E9',
-  analytical: '#2563EB',
-  creative: '#8B5CF6',
-  emotional: '#EC4899',
-  rational: '#475569',
-  leadership: '#F97316',
-  collaboration: '#14B8A6',
-  adaptability: '#22C55E',
-  communication: '#06B6D4',
-  discipline: '#F59E0B',
-  intuition: '#A855F7',
-};
+export const DIMENSIONS = SKILL_KEYS;
+export const DIMENSION_LABELS = SKILL_LABELS;
+export const DIMENSION_COLORS = SKILL_COLORS;
 
 const QUESTION_TYPE_MULTIPLIER = {
   scale: 1.25,
@@ -52,54 +15,43 @@ const QUESTION_TYPE_MULTIPLIER = {
   yes_no: 0.9,
 };
 
-const CATEGORY_TRAIT_BONUS = {
-  introversion_extraversion: { communication: 0.25 },
-  analytical_creative: { intuition: 0.2, discipline: 0.2 },
-  emotional_rational: { communication: 0.35, adaptability: 0.2 },
-  leadership_collaboration: { communication: 0.35, discipline: 0.2 },
-  stress_management: { adaptability: 0.55, discipline: 0.35 },
-};
-
-function initializeScoreMap() {
-  return DIMENSIONS.reduce((acc, dim) => ({ ...acc, [dim]: 0 }), {});
+function resolveDimensions(dimensions) {
+  return Array.isArray(dimensions) && dimensions.length ? dimensions : SKILL_KEYS;
 }
 
-function applyOptionContribution(question, selectedOption) {
-  const contribution = initializeScoreMap();
+function initializeScoreMap(dimensions) {
+  return resolveDimensions(dimensions).reduce((acc, dim) => ({ ...acc, [dim]: 0 }), {});
+}
+
+function applyOptionContribution(question, selectedOption, dimensions) {
+  const contribution = initializeScoreMap(dimensions);
   if (!question || !selectedOption?.scores) return contribution;
 
   const typeMultiplier = QUESTION_TYPE_MULTIPLIER[question.type] || 1;
-  const categoryBonus = CATEGORY_TRAIT_BONUS[question.category] || {};
 
   Object.entries(selectedOption.scores).forEach(([trait, value]) => {
     if (trait in contribution) contribution[trait] += value * typeMultiplier;
   });
 
-  Object.entries(categoryBonus).forEach(([trait, weight]) => {
-    if (trait in contribution) {
-      const rawMagnitude = Object.values(selectedOption.scores).reduce((acc, n) => acc + n, 0);
-      contribution[trait] += rawMagnitude * 0.1 * weight;
-    }
-  });
-
   return contribution;
 }
 
-function sumContribution(target, source) {
-  DIMENSIONS.forEach((trait) => {
+function sumContribution(target, source, dimensions) {
+  resolveDimensions(dimensions).forEach((trait) => {
     target[trait] += source[trait] || 0;
   });
 }
 
-function scoreByAnswer(answers, questions) {
-  const rawScores = initializeScoreMap();
-  const expectedScores = initializeScoreMap();
-  const minPossibleScores = initializeScoreMap();
-  const maxPossibleScores = initializeScoreMap();
+function scoreByAnswer(answers, questions, dimensions) {
+  const dims = resolveDimensions(dimensions);
+  const rawScores = initializeScoreMap(dims);
+  const expectedScores = initializeScoreMap(dims);
+  const minPossibleScores = initializeScoreMap(dims);
+  const maxPossibleScores = initializeScoreMap(dims);
   const answeredQuestions = [];
   const questionById = new Map((questions || []).map((q) => [q.id, q]));
 
-  answers.forEach((answer) => {
+  (answers || []).forEach((answer) => {
     const question = questionById.get(answer.question_id);
     if (!question?.options?.length) return;
 
@@ -109,12 +61,12 @@ function scoreByAnswer(answers, questions) {
     answeredQuestions.push(question);
 
     const optionContributions = question.options.map((option) =>
-      applyOptionContribution(question, option)
+      applyOptionContribution(question, option, dims)
     );
-    const selectedContribution = applyOptionContribution(question, selectedOption);
-    sumContribution(rawScores, selectedContribution);
+    const selectedContribution = applyOptionContribution(question, selectedOption, dims);
+    sumContribution(rawScores, selectedContribution, dims);
 
-    DIMENSIONS.forEach((trait) => {
+    dims.forEach((trait) => {
       const values = optionContributions.map((contrib) => contrib[trait] || 0);
       const avg = values.reduce((acc, value) => acc + value, 0) / values.length;
       const min = Math.min(...values);
@@ -126,18 +78,16 @@ function scoreByAnswer(answers, questions) {
     });
   });
 
-  // Balance each trait against what is statistically expected from the same answered questions.
-  // This avoids over-rewarding traits that naturally collect more raw points.
-  const balancedScores = initializeScoreMap();
-  DIMENSIONS.forEach((trait) => {
+  // Normalisation min/max relative au questionnaire réellement répondu,
+  // avec un léger recentrage vers la moyenne attendue pour éviter les dominances mécaniques.
+  const balancedScores = initializeScoreMap(dims);
+  dims.forEach((trait) => {
     const min = minPossibleScores[trait];
     const max = maxPossibleScores[trait];
     const raw = rawScores[trait];
     const range = Math.max(max - min, 1e-6);
 
-    // 0..100 score relative to feasible min/max for this exact questionnaire.
     const normalizedInRange = ((raw - min) / range) * 100;
-    // Small pull toward expected midpoint to reduce deterministic dominance.
     const expectedMidpoint = ((expectedScores[trait] - min) / range) * 100;
     const fairnessAdjusted = normalizedInRange * 0.8 + expectedMidpoint * 0.2;
     balancedScores[trait] = Math.max(0, Math.min(100, fairnessAdjusted));
@@ -146,12 +96,13 @@ function scoreByAnswer(answers, questions) {
   return { scoreMap: balancedScores, answeredQuestions };
 }
 
-export function calculateScores(answers, questions) {
-  return scoreByAnswer(answers, questions).scoreMap;
+export function calculateScores(answers, questions, dimensions) {
+  return scoreByAnswer(answers, questions, dimensions).scoreMap;
 }
 
 export function normalizeScores(scores) {
   const values = Object.values(scores);
+  if (!values.length) return {};
   const alreadyPercentageLike = values.every((value) => value >= 0 && value <= 100);
   if (alreadyPercentageLike) {
     return Object.fromEntries(
@@ -190,13 +141,6 @@ function tieBreaker(a, b, scores) {
     (aWeights[secondTrait] || 0) - (bWeights[secondTrait] || 0);
   if (topPreference !== 0) return topPreference;
 
-  const balancingTraits = ['adaptability', 'communication', 'discipline', 'intuition'];
-  const balancingDelta = balancingTraits.reduce(
-    (acc, trait) => acc + ((a.profile?.dominant_traits?.[trait] || 0) - (b.profile?.dominant_traits?.[trait] || 0)),
-    0
-  );
-  if (balancingDelta !== 0) return balancingDelta;
-
   return a.profile.name.localeCompare(b.profile.name, 'fr');
 }
 
@@ -210,7 +154,6 @@ export function matchProfile(scores, profiles) {
   if (ranked.length === 1) return ranked[0].profile;
 
   const [first, second] = ranked;
-  // If close scores (<= 2.5 points), resolve with trait-sensitive tie-break.
   if (Math.abs(first.score - second.score) <= 2.5) {
     const winner = tieBreaker(first, second, scores) >= 0 ? first : second;
     return winner.profile;
@@ -220,8 +163,21 @@ export function matchProfile(scores, profiles) {
 }
 
 export function getTopDimensions(scores, count = 4) {
-  return Object.entries(scores)
+  return Object.entries(scores || {})
     .sort(([, a], [, b]) => b - a)
     .slice(0, count)
     .map(([name, value]) => ({ name, value }));
+}
+
+export function getBottomDimensions(scores, count = 3) {
+  return Object.entries(scores || {})
+    .sort(([, a], [, b]) => a - b)
+    .slice(0, count)
+    .map(([name, value]) => ({ name, value }));
+}
+
+export function averageScore(scores) {
+  const values = Object.values(scores || {});
+  if (!values.length) return 0;
+  return Math.round(values.reduce((acc, v) => acc + v, 0) / values.length);
 }

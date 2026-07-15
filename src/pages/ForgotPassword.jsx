@@ -62,7 +62,7 @@ export default function ForgotPassword() {
           <div className="w-full p-7 md:p-8 rounded-3xl border border-white/45 bg-white/80 backdrop-blur-xl shadow-panel">
             <h1 className="text-2xl font-display font-bold">Mot de passe oublié</h1>
             <p className="text-sm text-muted-foreground mt-1 mb-6">
-              Envoi via Supabase Auth (selon la configuration SMTP du projet).
+              Saisissez votre email pour recevoir un lien de réinitialisation.
             </p>
 
             <form onSubmit={handleSubmit} className="space-y-4">

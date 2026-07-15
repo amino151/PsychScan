@@ -1,11 +1,11 @@
 {
-  "name": "MindScan",
-  "short_name": "MindScan",
-  "description": "Plateforme d'analyse psychologique",
+  "name": "PsychoScan IOS",
+  "short_name": "PsychoScan",
+  "description": "Plateforme RH d'évaluation des compétences pour centre d'appels",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
-  "theme_color": "#6366f1",
+  "theme_color": "#1D4ED8",
   "icons": [
     {
       "src": "/favicon.svg",

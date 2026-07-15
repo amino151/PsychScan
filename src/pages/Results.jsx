@@ -1,36 +1,39 @@
 import React, { useRef, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
-import { appApi } from '@/services/appApi';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import { ArrowLeft, Download, Loader2, GraduationCap, Briefcase, Target } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Download, Loader2, RotateCcw } from 'lucide-react';
-import { defaultProfiles } from '@/lib/questionData';
-import { motion } from 'framer-motion';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import PageHeader from '@/components/shared/PageHeader';
+import SkillRadar from '@/components/shared/SkillRadar';
+import SkillBars from '@/components/shared/SkillBars';
+import { FitBadge, DepartmentBadge } from '@/components/shared/Badges';
 import ProfileCard from '@/components/results/ProfileCard';
-import ScoreRadar from '@/components/results/ScoreRadar';
-import ScoreBars from '@/components/results/ScoreBars';
 import StrengthsWeaknesses from '@/components/results/StrengthsWeaknesses';
-import CareerAdvice from '@/components/results/CareerAdvice';
+import { appApi } from '@/services/appApi';
+import { getProfile } from '@/config/profiles';
+import { getDepartment } from '@/config/departments';
+import { generateInsights } from '@/lib/insights';
 import { generateReportPDF } from '@/utils/generateReportPDF';
 
 export default function Results() {
   const { id } = useParams();
-  const radarContainerRef = useRef(null);
+  const navigate = useNavigate();
+  const radarRef = useRef(null);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
   const { data: result, isLoading } = useQuery({
     queryKey: ['result', id],
-    queryFn: () => appApi.entities.TestResult.filter({ id }),
-    select: (data) => data[0],
+    queryFn: () => appApi.entities.Result.get(id),
+    enabled: Boolean(id),
   });
 
-  const { data: dbProfiles } = useQuery({
-    queryKey: ['profiles'],
-    queryFn: () => appApi.entities.PsychProfile.list(),
-    initialData: [],
+  const { data: employee } = useQuery({
+    queryKey: ['result-employee', result?.employee_id],
+    queryFn: () => appApi.entities.Employee.get(result.employee_id),
+    enabled: Boolean(result?.employee_id),
   });
-
-  const profiles = dbProfiles.length > 0 ? dbProfiles : defaultProfiles;
 
   if (isLoading) {
     return (
@@ -44,14 +47,14 @@ export default function Results() {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
         <p className="text-muted-foreground">Résultat introuvable</p>
-        <Link to="/test">
-          <Button>Passer le test</Button>
-        </Link>
+        <Button onClick={() => navigate('/app/employe')}>Retour</Button>
       </div>
     );
   }
 
-  const profile = profiles.find(p => p.code === result.profile_code) || profiles[0];
+  const profile = getProfile(result.profile_code) || null;
+  const department = getDepartment(result.department_id);
+  const insights = generateInsights(result.scores, profile, department?.code);
   const from = profile?.theme?.from || '#2563EB';
   const to = profile?.theme?.to || '#8B5CF6';
 
@@ -62,12 +65,13 @@ export default function Results() {
       await generateReportPDF({
         result,
         profile,
-        userName: result?.user_name,
-        radarElement: radarContainerRef.current,
+        department,
+        employee,
+        insights,
+        radarElement: radarRef.current,
       });
-    } catch (error) {
-      // Keep UX simple; fail silently in-page.
-      console.error('PDF generation failed:', error);
+    } catch (err) {
+      console.error('PDF generation failed:', err);
     } finally {
       setIsGeneratingPdf(false);
     }
@@ -76,92 +80,119 @@ export default function Results() {
   return (
     <div className="min-h-screen bg-background pb-10">
       <div
-        className="absolute inset-x-0 top-0 h-[330px] opacity-90"
+        className="absolute inset-x-0 top-0 h-[300px] opacity-90"
         style={{ background: `linear-gradient(135deg, ${from}22 0%, ${to}25 60%, #0ea5e922 100%)` }}
       />
-      <div className="relative max-w-5xl mx-auto px-4 py-8 md:py-12 space-y-10">
-        <div className="flex items-center justify-between">
-          <Link to="/">
-            <Button variant="ghost" size="sm" className="gap-2">
-              <ArrowLeft className="w-4 h-4" />
-              Accueil
-            </Button>
-          </Link>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-2"
-              onClick={handleDownloadPdf}
-              disabled={isGeneratingPdf}
-            >
-              {isGeneratingPdf ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Download className="w-4 h-4" />
-              )}
-              {isGeneratingPdf ? 'Génération…' : 'Download PDF Report'}
-            </Button>
-            <Link to="/test">
-              <Button variant="outline" size="sm" className="gap-2">
-                <RotateCcw className="w-4 h-4" />
-                Refaire le test
+      <div className="relative max-w-5xl mx-auto px-4 py-8 md:py-12 space-y-8">
+        <PageHeader
+          eyebrow="Bilan d'évaluation"
+          icon={Target}
+          title="Résultat de compétences"
+          subtitle={employee ? `${employee.full_name} · ${employee.position || ''}` : undefined}
+          actions={
+            <>
+              <Button variant="ghost" size="sm" className="gap-2" onClick={() => navigate(-1)}>
+                <ArrowLeft className="w-4 h-4" />
+                Retour
               </Button>
-            </Link>
-          </div>
-        </div>
+              <Button variant="outline" size="sm" className="gap-2" onClick={handleDownloadPdf} disabled={isGeneratingPdf}>
+                {isGeneratingPdf ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                {isGeneratingPdf ? 'Génération…' : 'Rapport PDF'}
+              </Button>
+            </>
+          }
+        />
 
-        <motion.section
-          initial={{ opacity: 0, y: 18 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.45 }}
-          className="rounded-3xl border border-white/35 bg-white/70 backdrop-blur-xl p-6 md:p-8 shadow-2xl shadow-brand-primary/10"
-        >
-          <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground mb-2">Votre analyse</p>
-          <h1 className="text-3xl md:text-4xl font-display font-bold text-slate-900">
-            Resultat de personnalite
-          </h1>
-          <p className="text-sm text-muted-foreground mt-2">
-            Profil calcule a partir d&apos;un moteur de scoring multi-dimensions.
-          </p>
-        </motion.section>
+        <div className="flex flex-wrap items-center gap-3">
+          {department ? <DepartmentBadge departmentId={department.id} /> : null}
+          <span className="text-sm text-muted-foreground">Adéquation au poste :</span>
+          <FitBadge value={result.department_fit} />
+        </div>
 
         <ProfileCard profile={profile} />
 
-        <motion.div
-          initial={{ opacity: 0, y: 18 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.05 }}
-          className="grid grid-cols-1 lg:grid-cols-2 gap-6"
-        >
-          <div
-            ref={radarContainerRef}
-            className="p-6 rounded-2xl bg-white/90 border border-white/45 shadow-lg shadow-brand-primary/5"
-          >
-            <h3 className="font-semibold mb-4">Vue radar</h3>
-            <ScoreRadar scores={result.scores} />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div ref={radarRef} className="p-6 rounded-2xl bg-white/90 border border-white/45 shadow-lg">
+            <h3 className="font-semibold mb-4">Radar des compétences</h3>
+            <SkillRadar series={[{ key: 'me', name: 'Compétences', scores: result.scores, color: from }]} />
           </div>
-          <div className="p-6 rounded-2xl bg-white/90 border border-white/45 shadow-lg shadow-brand-primary/5">
+          <div className="p-6 rounded-2xl bg-white/90 border border-white/45 shadow-lg">
             <h3 className="font-semibold mb-4">Scores détaillés</h3>
-            <ScoreBars scores={result.scores} />
+            <SkillBars scores={result.scores} height={360} />
           </div>
-        </motion.div>
+        </div>
 
-        <StrengthsWeaknesses
-          strengths={profile?.strengths}
-          weaknesses={profile?.weaknesses}
-        />
+        <StrengthsWeaknesses strengths={insights.strengths} weaknesses={insights.weaknesses} />
 
-        <CareerAdvice
-          careers={profile?.recommended_careers}
-          advice={profile?.advice}
-        />
+        {department ? (
+          <Card className="border-white/45 bg-white/85 shadow-panel">
+            <CardHeader>
+              <CardTitle className="text-base">Insights département — {department.name}</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {insights.departmentInsights.map((d) => (
+                <div key={d.skill} className="flex items-center gap-2 text-sm">
+                  <Badge
+                    className="border-0 text-white text-xs"
+                    style={{ backgroundColor: d.level === 'fort' ? '#16a34a' : d.level === 'à développer' ? '#ef4444' : '#f59e0b' }}
+                  >
+                    {d.level}
+                  </Badge>
+                  <span className="text-muted-foreground">{d.message}</span>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        ) : null}
 
-        {result.completion_time_seconds && (
-          <div className="text-center text-sm text-muted-foreground">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <Card className="border-white/45 bg-white/85 shadow-panel">
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <GraduationCap className="w-4 h-4 text-secondary" />
+                Formations suggérées
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {insights.trainingSuggestions.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Aucune formation prioritaire — profil équilibré.</p>
+              ) : (
+                insights.trainingSuggestions.map((t) => (
+                  <div key={t.id} className="rounded-xl border border-white/60 bg-white/70 p-3">
+                    <p className="font-medium text-sm">{t.title}</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {t.description} · {t.duration} · {t.format}
+                    </p>
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="border-white/45 bg-white/85 shadow-panel">
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Briefcase className="w-4 h-4 text-primary" />
+                Recommandations de carrière
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-wrap gap-2">
+                {insights.careerRecommendations.map((c) => (
+                  <span key={c} className="px-3 py-1 rounded-full text-sm bg-primary/10 text-primary border border-primary/20">
+                    {c}
+                  </span>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {result.completion_time_seconds ? (
+          <p className="text-center text-sm text-muted-foreground">
             Temps de complétion : {Math.floor(result.completion_time_seconds / 60)} min {result.completion_time_seconds % 60} sec
-          </div>
-        )}
+          </p>
+        ) : null}
       </div>
     </div>
   );
