@@ -74,23 +74,30 @@ export const appApi = {
   isMock: !isSupabaseConfigured,
 
   auth: {
-    async register({ full_name, email, password, role = 'employee', department_id = null }) {
+    async register({ full_name, email, password }) {
       const normalized = normalizeEmail(email);
       const data = await authService.signUp(normalized, password, { full_name });
       const user = data?.user;
-      // En mode Supabase, on crée le profil applicatif ; en mode mock il existe déjà.
-      if (isSupabaseConfigured && user?.id) {
-        await dbUpsert(
-          'profiles',
-          {
-            id: user.id,
-            email: user.email ?? normalized,
-            full_name: (full_name || '').trim(),
-            role,
-            department_id,
-          },
-          'id'
-        );
+      // Le profil est créé côté serveur par le trigger `handle_new_user`
+      // (SECURITY DEFINER), ce qui fonctionne que la confirmation d'email soit
+      // activée ou non. En complément, si une session existe déjà (confirmation
+      // désactivée), on tente un upsert best-effort pour auto-réparer un projet
+      // où le trigger n'aurait pas encore été installé. Jamais bloquant : le
+      // trigger reste la source de vérité et une erreur RLS ne casse pas le flux.
+      if (isSupabaseConfigured && user?.id && data?.session) {
+        try {
+          await dbUpsert(
+            'profiles',
+            {
+              id: user.id,
+              email: user.email ?? normalized,
+              full_name: (full_name || '').trim(),
+            },
+            'id'
+          );
+        } catch {
+          /* profil déjà créé par le trigger : rien à faire */
+        }
       }
       return authService.getCurrentUser();
     },
@@ -195,8 +202,6 @@ export const appApi = {
       answers: answers ?? [],
       completion_time_seconds: completionTimeSeconds ?? null,
       department_fit: departmentFit ?? null,
-      user_name: employee?.full_name ?? 'Invité',
-      user_email: employee?.email ?? getGuestEmail(),
     });
 
     if (assignmentId) {
